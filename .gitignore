@@ -147,3 +147,8 @@ dist/
 
 # Roo Code
 .roo/
+
+# ezbookkeeping data
+mysql_data/
+data/
+log/
