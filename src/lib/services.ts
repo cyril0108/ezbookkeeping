@@ -118,6 +118,14 @@ import type {
     TransactionTemplateInfoResponse
 } from '@/models/transaction_template.ts';
 import type {
+    InsightsExplorerCreateRequest,
+    InsightsExplorerModifyRequest,
+    InsightsExplorerHideRequest,
+    InsightsExplorerMoveRequest,
+    InsightsExplorerDeleteRequest,
+    InsightsExplorerInfoResponse,
+} from '@/models/explorer.ts';
+import type {
     TokenGenerateAPIRequest,
     TokenGenerateMCPRequest,
     TokenRevokeRequest,
@@ -178,7 +186,8 @@ import {
 } from './server_settings.ts';
 import {
     getTimezoneOffsetMinutes,
-    guessTimezoneName
+    getBrowserTimezoneName,
+    getCurrentUnixTime
 } from './datetime.ts';
 import { generateRandomUUID } from './misc.ts';
 import { getBasePath } from './web.ts';
@@ -208,12 +217,12 @@ axios.interceptors.request.use((config: ApiRequestConfig) => {
         config.headers.Authorization = `Bearer ${token}`;
     }
 
-    config.headers['X-Timezone-Offset'] = getTimezoneOffsetMinutes();
+    config.headers['X-Timezone-Offset'] = getTimezoneOffsetMinutes(getCurrentUnixTime());
 
     let timezoneName = getTimeZone();
 
     if (!timezoneName || timezoneName.trim().length < 1) {
-        timezoneName = guessTimezoneName();
+        timezoneName = getBrowserTimezoneName();
     }
 
     config.headers['X-Timezone-Name'] = timezoneName;
@@ -508,7 +517,7 @@ export default {
         return axios.get<ApiResponse<TransactionInfoPageWrapperResponse2>>(`v1/transactions/list/by_month.json?year=${req.year}&month=${req.month}&type=${req.type}&category_ids=${req.categoryIds}&account_ids=${req.accountIds}&tag_filter=${tagFilter}&amount_filter=${amountFilter}&keyword=${keyword}&trim_account=true&trim_category=true&trim_tag=true`);
     },
     getAllTransactions: (req: TransactionAllListRequest): ApiResponsePromise<TransactionInfoResponse[]> => {
-        return axios.get<ApiResponse<TransactionInfoResponse[]>>(`v1/transactions/list/all.json?trim_account=true&trim_category=true&trim_tag=true&start_time=${req.startTime}&end_time=${req.endTime}`);
+        return axios.get<ApiResponse<TransactionInfoResponse[]>>(`v1/transactions/list/all.json?trim_account=true&with_pictures=${!!req.withPictures}&trim_category=true&trim_tag=true&start_time=${req.startTime}&end_time=${req.endTime}`);
     },
     getReconciliationStatements: (req: TransactionReconciliationStatementRequest): ApiResponsePromise<TransactionReconciliationStatementResponse> => {
         return axios.get<ApiResponse<TransactionReconciliationStatementResponse>>(`v1/transactions/reconciliation_statements.json?account_id=${req.accountId}&start_time=${req.startTime}&end_time=${req.endTime}`);
@@ -740,6 +749,27 @@ export default {
     },
     deleteTransactionTemplate: (req: TransactionTemplateDeleteRequest): ApiResponsePromise<boolean> => {
         return axios.post<ApiResponse<boolean>>('v1/transaction/templates/delete.json', req);
+    },
+    getAllInsightsExplorers: (): ApiResponsePromise<InsightsExplorerInfoResponse[]> => {
+        return axios.get<ApiResponse<InsightsExplorerInfoResponse[]>>('v1/insights/explorers/list.json');
+    },
+    getInsightsExplorer: ({ id }: { id: string }): ApiResponsePromise<InsightsExplorerInfoResponse> => {
+        return axios.get<ApiResponse<InsightsExplorerInfoResponse>>('v1/insights/explorers/get.json?id=' + id);
+    },
+    addInsightsExplorer: (req: InsightsExplorerCreateRequest): ApiResponsePromise<InsightsExplorerInfoResponse> => {
+        return axios.post<ApiResponse<InsightsExplorerInfoResponse>>('v1/insights/explorers/add.json', req);
+    },
+    modifyInsightsExplorer: (req: InsightsExplorerModifyRequest): ApiResponsePromise<InsightsExplorerInfoResponse> => {
+        return axios.post<ApiResponse<InsightsExplorerInfoResponse>>('v1/insights/explorers/modify.json', req);
+    },
+    hideInsightsExplorer: (req: InsightsExplorerHideRequest): ApiResponsePromise<boolean> => {
+        return axios.post<ApiResponse<boolean>>('v1/insights/explorers/hide.json', req);
+    },
+    moveInsightsExplorer: (req: InsightsExplorerMoveRequest): ApiResponsePromise<boolean> => {
+        return axios.post<ApiResponse<boolean>>('v1/insights/explorers/move.json', req);
+    },
+    deleteInsightsExplorer: (req: InsightsExplorerDeleteRequest): ApiResponsePromise<boolean> => {
+        return axios.post<ApiResponse<boolean>>('v1/insights/explorers/delete.json', req);
     },
     recognizeReceiptImage: ({ imageFile, cancelableUuid }: { imageFile: File, cancelableUuid?: string }): ApiResponsePromise<RecognizedReceiptImageResponse> => {
         return axios.postForm<ApiResponse<RecognizedReceiptImageResponse>>('v1/llm/transactions/recognize_receipt_image.json', {

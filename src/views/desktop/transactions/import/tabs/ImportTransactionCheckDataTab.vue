@@ -81,7 +81,7 @@
         <template #item.time="{ item }">
             <span>{{ getDisplayDateTime(item) }}</span>
             <v-chip class="ms-1" variant="flat" color="grey" size="x-small"
-                    v-if="item.utcOffset !== currentTimezoneOffsetMinutes">{{ getDisplayTimezone(item) }}</v-chip>
+                    v-if="!isSameAsDefaultTimezoneOffsetMinutes(item)">{{ getDisplayTimezone(item) }}</v-chip>
         </template>
         <template #item.type="{ value }">
             <v-chip label color="secondary" variant="outlined" size="x-small" v-if="value === TransactionType.ModifyBalance">{{ tt('Modify Balance') }}</v-chip>
@@ -427,7 +427,9 @@ import {
 } from '@/lib/common.ts';
 import {
     getUtcOffsetByUtcOffsetMinutes,
-    getTimezoneOffsetMinutes
+    getTimezoneOffsetMinutes,
+    parseDateTimeFromUnixTime,
+    parseDateTimeFromUnixTimeWithTimezoneOffset
 } from '@/lib/datetime.ts';
 import { formatCoordinate } from '@/lib/coordinate.ts';
 import {
@@ -450,6 +452,7 @@ import {
     mdiAlertOutline,
     mdiPound,
     mdiTextBoxEditOutline,
+    mdiFilterOffOutline,
     mdiShapePlusOutline,
     mdiPencilBoxMultipleOutline,
     mdiNumericPositive1,
@@ -473,7 +476,7 @@ interface ImportTransactionCheckDataFilter {
 }
 
 interface ImportTransactionCheckDataMenuGroup {
-    title: string;
+    title?: string;
     items: ImportTransactionCheckDataMenu[];
 }
 
@@ -495,7 +498,7 @@ const props = defineProps<{
 const {
     tt,
     getCurrentNumeralSystemType,
-    formatUnixTimeToLongDateTime,
+    formatDateTimeToLongDateTime,
     formatAmountToLocalizedNumeralsWithCurrency,
     getCategorizedAccountsWithDisplayBalance
 } = useI18n();
@@ -536,14 +539,14 @@ const currentDescriptionFilterValue = ref<string | null>(null);
 
 const numeralSystem = computed<NumeralSystem>(() => getCurrentNumeralSystemType());
 const showAccountBalance = computed<boolean>(() => settingsStore.appSettings.showAccountBalance);
-const currentTimezoneOffsetMinutes = computed<number>(() => getTimezoneOffsetMinutes(settingsStore.appSettings.timeZone));
+const customAccountCategoryOrder = computed<string>(() => settingsStore.appSettings.accountCategoryOrders);
 
 const defaultCurrency = computed<string>(() => userStore.currentUserDefaultCurrency);
 const coordinateDisplayType = computed<number>(() => userStore.currentUserCoordinateDisplayType);
 
 const allAccounts = computed<Account[]>(() => accountsStore.allPlainAccounts);
 const allVisibleAccounts = computed<Account[]>(() => accountsStore.allVisiblePlainAccounts);
-const allVisibleCategorizedAccounts = computed<CategorizedAccountWithDisplayBalance[]>(() => getCategorizedAccountsWithDisplayBalance(allVisibleAccounts.value, showAccountBalance.value));
+const allVisibleCategorizedAccounts = computed<CategorizedAccountWithDisplayBalance[]>(() => getCategorizedAccountsWithDisplayBalance(allVisibleAccounts.value, showAccountBalance.value, customAccountCategoryOrder.value));
 const allAccountsMap = computed<Record<string, Account>>(() => accountsStore.allAccountsMap);
 const allAccountsMapByName = computed<Record<string, Account>>(() => getAccountMapByName(accountsStore.allAccounts));
 const allCategories = computed<Record<number, TransactionCategory[]>>(() => transactionCategoriesStore.allTransactionCategories);
@@ -559,6 +562,32 @@ const isEditing = computed<boolean>(() => !!editingTransaction.value);
 const canImport = computed<boolean>(() => selectedImportTransactionCount.value > 0 && selectedInvalidTransactionCount.value < 1);
 
 const filterMenus = computed<ImportTransactionCheckDataMenuGroup[]>(() => [
+    {
+        items: [
+            {
+                title: tt('Clear All Filters'),
+                prependIcon: mdiFilterOffOutline,
+                disabled: filters.value.minDatetime === null
+                    && filters.value.maxDatetime === null
+                    && filters.value.transactionType === null
+                    && filters.value.category === null
+                    && filters.value.amount === null
+                    && filters.value.account === null
+                    && filters.value.tag === null
+                    && filters.value.description === null,
+                onClick: () => {
+                    filters.value.minDatetime = null;
+                    filters.value.maxDatetime = null;
+                    filters.value.transactionType = null;
+                    filters.value.category = null;
+                    filters.value.amount = null;
+                    filters.value.account = null;
+                    filters.value.tag = null;
+                    filters.value.description = null;
+                }
+            }
+        ]
+    },
     {
         title: tt('Date Range'),
         items: [
@@ -915,9 +944,10 @@ const importTransactionsTableHeight = computed<number | undefined>(() => {
 
 const importTransactionHeaders = computed<object[]>(() => {
     return [
-        { value: 'valid', sortable: true, nowrap: true, width: 35 },
-        { value: 'time', title: tt('Transaction Time'), sortable: true, nowrap: true, maxWidth: 280 },
-        { value: 'type', title: tt('Type'), sortable: true, nowrap: true, maxWidth: 140 },
+        { key: 'data-table-select', fixed: true },
+        { value: 'valid', sortable: true, nowrap: true, width: 35, fixed: true },
+        { value: 'time', title: tt('Transaction Time'), sortable: true, nowrap: true },
+        { value: 'type', title: tt('Type'), sortable: true, nowrap: true },
         { value: 'actualCategoryName', title: tt('Category'), sortable: true, nowrap: true },
         { value: 'sourceAmount', title: tt('Amount'), sortable: true, nowrap: true },
         { value: 'actualSourceAccountName', title: tt('Account'), sortable: true, nowrap: true },
@@ -1129,8 +1159,8 @@ const displayFilterCustomDateRange = computed<string>(() => {
         return '';
     }
 
-    const minDisplayTime = formatUnixTimeToLongDateTime(filters.value.minDatetime);
-    const maxDisplayTime = formatUnixTimeToLongDateTime(filters.value.maxDatetime);
+    const minDisplayTime = formatDateTimeToLongDateTime(parseDateTimeFromUnixTime(filters.value.minDatetime));
+    const maxDisplayTime = formatDateTimeToLongDateTime(parseDateTimeFromUnixTime(filters.value.maxDatetime));
 
     return `${minDisplayTime} - ${maxDisplayTime}`
 });
@@ -1272,7 +1302,12 @@ function isTagValid(tagIds: string[], tagIndex: number): boolean {
 }
 
 function getDisplayDateTime(transaction: ImportTransaction): string {
-    return formatUnixTimeToLongDateTime(transaction.time, transaction.utcOffset, currentTimezoneOffsetMinutes.value);
+    const dateTime = parseDateTimeFromUnixTimeWithTimezoneOffset(transaction.time, transaction.utcOffset)
+    return formatDateTimeToLongDateTime(dateTime);
+}
+
+function isSameAsDefaultTimezoneOffsetMinutes(transaction: ImportTransaction): boolean {
+    return transaction.utcOffset === getTimezoneOffsetMinutes(transaction.time);
 }
 
 function getDisplayTimezone(transaction: ImportTransaction): string {

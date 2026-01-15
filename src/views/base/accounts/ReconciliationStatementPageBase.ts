@@ -2,16 +2,18 @@ import { ref, computed } from 'vue';
 
 import { useI18n } from '@/locales/helpers.ts';
 
-import { useSettingsStore } from '@/stores/setting.ts';
 import { useUserStore } from '@/stores/user.ts';
 import { useAccountsStore } from '@/stores/account.ts';
 import { useTransactionCategoriesStore } from '@/stores/transactionCategory.ts';
 
 import type { TypeAndDisplayName } from '@/core/base.ts';
+import type { NumeralSystem } from '@/core/numeral.ts';
 import type { WeekDayValue } from '@/core/datetime.ts';
+import { TimezoneTypeForStatistics } from '@/core/timezone.ts';
 import { TransactionType } from '@/core/transaction.ts';
-import { StatisticsAnalysisType } from '@/core/statistics.ts';
+import { StatisticsAnalysisType, ChartDateAggregationType } from '@/core/statistics.ts';
 import { KnownFileType } from '@/core/file.ts';
+
 import type { Account } from '@/models/account.ts';
 import type { TransactionCategory } from '@/models/transaction_category.ts';
 import type {
@@ -25,7 +27,8 @@ import { replaceAll } from '@/lib/common.ts';
 import {
     getUtcOffsetByUtcOffsetMinutes,
     getTimezoneOffsetMinutes,
-    parseDateTimeFromUnixTime
+    parseDateTimeFromUnixTime,
+    parseDateTimeFromUnixTimeWithTimezoneOffset
 } from '@/lib/datetime.ts';
 
 export function useReconciliationStatementPageBase() {
@@ -33,15 +36,16 @@ export function useReconciliationStatementPageBase() {
         tt,
         getAllAccountBalanceTrendChartTypes,
         getAllStatisticsDateAggregationTypesWithShortName,
-        formatUnixTimeToLongDateTime,
-        formatUnixTimeToLongDate,
-        formatUnixTimeToShortTime,
-        formatUnixTimeToGregorianDefaultDateTime,
+        getAllTimezoneTypesUsedForStatistics,
+        getCurrentNumeralSystemType,
+        formatDateTimeToLongDateTime,
+        formatDateTimeToLongDate,
+        formatDateTimeToShortTime,
+        formatDateTimeToGregorianDefaultDateTime,
         formatAmountToWesternArabicNumeralsWithoutDigitGrouping,
         formatAmountToLocalizedNumeralsWithCurrency
     } = useI18n();
 
-    const settingsStore = useSettingsStore();
     const userStore = useUserStore();
     const accountsStore = useAccountsStore();
     const transactionCategoriesStore = useTransactionCategoriesStore();
@@ -50,14 +54,17 @@ export function useReconciliationStatementPageBase() {
     const startTime = ref<number>(0);
     const endTime = ref<number>(0);
     const reconciliationStatements = ref<TransactionReconciliationStatementResponseWithInfo | undefined>(undefined);
+    const chartDataDateAggregationType = ref<number>(ChartDateAggregationType.Day.type);
+    const timezoneUsedForDateRange = ref<number>(TimezoneTypeForStatistics.ApplicationTimezone.type);
 
+    const numeralSystem = computed<NumeralSystem>(() => getCurrentNumeralSystemType());
     const firstDayOfWeek = computed<WeekDayValue>(() => userStore.currentUserFirstDayOfWeek);
     const fiscalYearStart = computed<number>(() => userStore.currentUserFiscalYearStart);
-    const currentTimezoneOffsetMinutes = computed<number>(() => getTimezoneOffsetMinutes(settingsStore.appSettings.timeZone));
     const defaultCurrency = computed<string>(() => userStore.currentUserDefaultCurrency);
 
     const allChartTypes = computed<TypeAndDisplayName[]>(() => getAllAccountBalanceTrendChartTypes());
     const allDateAggregationTypes = computed<TypeAndDisplayName[]>(() => getAllStatisticsDateAggregationTypesWithShortName(StatisticsAnalysisType.AssetTrends));
+    const allTimezoneTypesUsedForDateRange = computed<TypeAndDisplayName[]>(() => getAllTimezoneTypesUsedForStatistics());
 
     const currentAccount = computed(() => allAccountsMap.value[accountId.value]);
     const currentAccountCurrency = computed<string>(() => currentAccount.value?.currency ?? defaultCurrency.value);
@@ -79,11 +86,13 @@ export function useReconciliationStatementPageBase() {
     const allCategoriesMap = computed<Record<string, TransactionCategory>>(() => transactionCategoriesStore.allTransactionCategoriesMap);
 
     const displayStartDateTime = computed<string>(() => {
-        return formatUnixTimeToLongDateTime(startTime.value);
+        const dateTime = parseDateTimeFromUnixTime(startTime.value);
+        return formatDateTimeToLongDateTime(dateTime);
     });
 
     const displayEndDateTime = computed<string>(() => {
-        return formatUnixTimeToLongDateTime(endTime.value);
+        const dateTime = parseDateTimeFromUnixTime(endTime.value);
+        return formatDateTimeToLongDateTime(dateTime);
     });
 
     const displayTotalInflows = computed<string>(() => {
@@ -160,19 +169,33 @@ export function useReconciliationStatementPageBase() {
     }
 
     function getDisplayDateTime(transaction: TransactionReconciliationStatementResponseItemWithInfo): string {
-        return formatUnixTimeToLongDateTime(transaction.time, transaction.utcOffset, currentTimezoneOffsetMinutes.value);
+        const dateTime = parseDateTimeFromUnixTimeWithTimezoneOffset(transaction.time, transaction.utcOffset);
+        return formatDateTimeToLongDateTime(dateTime);
     }
 
     function getDisplayDate(transaction: TransactionReconciliationStatementResponseItemWithInfo): string {
-        return formatUnixTimeToLongDate(transaction.time, transaction.utcOffset, currentTimezoneOffsetMinutes.value);
+        const dateTime = parseDateTimeFromUnixTimeWithTimezoneOffset(transaction.time, transaction.utcOffset);
+        return formatDateTimeToLongDate(dateTime);
     }
 
     function getDisplayTime(transaction: TransactionReconciliationStatementResponseItemWithInfo): string {
-        return formatUnixTimeToShortTime(transaction.time, transaction.utcOffset, currentTimezoneOffsetMinutes.value);
+        const dateTime = parseDateTimeFromUnixTimeWithTimezoneOffset(transaction.time, transaction.utcOffset);
+        return formatDateTimeToShortTime(dateTime);
+    }
+
+    function isSameAsDefaultTimezoneOffsetMinutes(transaction: TransactionReconciliationStatementResponseItemWithInfo): boolean {
+        return transaction.utcOffset === getTimezoneOffsetMinutes(transaction.time);
     }
 
     function getDisplayTimezone(transaction: TransactionReconciliationStatementResponseItemWithInfo): string {
         return `UTC${getUtcOffsetByUtcOffsetMinutes(transaction.utcOffset)}`;
+    }
+
+    function getDisplayTimeInDefaultTimezone(transaction: TransactionReconciliationStatementResponseItemWithInfo): string {
+        const timezoneOffsetMinutes = getTimezoneOffsetMinutes(transaction.time);
+        const dateTime = parseDateTimeFromUnixTimeWithTimezoneOffset(transaction.time, timezoneOffsetMinutes);
+        const utcOffset = numeralSystem.value.replaceWesternArabicDigitsToLocalizedDigits(getUtcOffsetByUtcOffsetMinutes(timezoneOffsetMinutes));
+        return `${formatDateTimeToLongDateTime(dateTime)} (UTC${utcOffset})`;
     }
 
     function getDisplaySourceAmount(transaction: TransactionReconciliationStatementResponseItemWithInfo): string {
@@ -227,7 +250,7 @@ export function useReconciliationStatementPageBase() {
 
         const transactions = reconciliationStatements.value?.transactions ?? [];
         const rows = transactions.map(transaction => {
-            const transactionTime = parseDateTimeFromUnixTime(transaction.time, transaction.utcOffset, currentTimezoneOffsetMinutes.value).getUnixTime();
+            const transactionTime = parseDateTimeFromUnixTimeWithTimezoneOffset(transaction.time, transaction.utcOffset);
             const type = getDisplayTransactionType(transaction);
             let categoryName = transaction.categoryName;
             let displayAmount = formatAmountToWesternArabicNumeralsWithoutDigitGrouping(transaction.sourceAmount);
@@ -260,7 +283,7 @@ export function useReconciliationStatementPageBase() {
             }
 
             return [
-                formatUnixTimeToGregorianDefaultDateTime(transactionTime),
+                formatDateTimeToGregorianDefaultDateTime(transactionTime),
                 type,
                 categoryName,
                 displayAmount,
@@ -279,13 +302,15 @@ export function useReconciliationStatementPageBase() {
         startTime,
         endTime,
         reconciliationStatements,
+        chartDataDateAggregationType,
+        timezoneUsedForDateRange,
         // computed states
         firstDayOfWeek,
         fiscalYearStart,
-        currentTimezoneOffsetMinutes,
         defaultCurrency,
         allChartTypes,
         allDateAggregationTypes,
+        allTimezoneTypesUsedForDateRange,
         currentAccount,
         currentAccountCurrency,
         isCurrentLiabilityAccount,
@@ -303,7 +328,9 @@ export function useReconciliationStatementPageBase() {
         getDisplayDateTime,
         getDisplayDate,
         getDisplayTime,
+        isSameAsDefaultTimezoneOffsetMinutes,
         getDisplayTimezone,
+        getDisplayTimeInDefaultTimezone,
         getDisplaySourceAmount,
         getDisplayDestinationAmount,
         getDisplayAccountBalance,

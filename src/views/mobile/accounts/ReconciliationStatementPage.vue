@@ -51,10 +51,10 @@
                 </template>
                 <template #footer>
                     <div v-if="dateRange.isUserCustomRange && queryDateRangeType === dateRange.type && startTime && endTime">
-                        <span>{{ displayStartTime }}</span>
+                        <span>{{ displayStartDateTime }}</span>
                         <span>&nbsp;-&nbsp;</span>
                         <br/>
-                        <span>{{ displayEndTime }}</span>
+                        <span>{{ displayEndDateTime }}</span>
                     </div>
                 </template>
             </f7-list-item>
@@ -227,7 +227,7 @@
                                     <div class="transaction-footer display-flex justify-content-space-between">
                                         <div class="flex-shrink-0">
                                             <span>{{ getDisplayTime(item.transaction) }}</span>
-                                            <span v-if="item.transaction.utcOffset !== currentTimezoneOffsetMinutes">{{ `(${getDisplayTimezone(item.transaction)})` }}</span>
+                                            <span style="margin-inline-start: 4px" v-if="!isSameAsDefaultTimezoneOffsetMinutes(item.transaction)">{{ `(${getDisplayTimezone(item.transaction)})` }}</span>
                                         </div>
                                         <div class="account-balance flex-shrink-1">
                                             <span>{{ isCurrentLiabilityAccount ? tt('Outstanding Balance') : tt('Balance') }}</span>
@@ -273,6 +273,7 @@
                 <account-balance-trends-bar-chart
                     :loading="loading"
                     :date-aggregation-type="chartDataDateAggregationType"
+                    :timezone-used-for-date-range="timezoneUsedForDateRange"
                     :fiscal-year-start="fiscalYearStart"
                     :items="reconciliationStatements?.transactions"
                     :account="currentAccount"
@@ -282,6 +283,9 @@
 
         <f7-popover class="chart-data-date-aggregation-type-popover-menu">
             <f7-list dividers>
+                <f7-list-item group-title>
+                    <small>{{ tt('Time Granularity') }}</small>
+                </f7-list-item>
                 <f7-list-item link="#" no-chevron popover-close
                               :title="dateAggregationType.displayName"
                               :class="{ 'list-item-selected': chartDataDateAggregationType === dateAggregationType.type }"
@@ -292,6 +296,20 @@
                         <f7-icon class="list-item-checked-icon" f7="checkmark_alt" v-if="chartDataDateAggregationType === dateAggregationType.type"></f7-icon>
                     </template>
                 </f7-list-item>
+                <f7-list-item group-title>
+                    <small>{{ tt('Timezone Used for Date Range') }}</small>
+                </f7-list-item>
+                <f7-list-item link="#" no-chevron popover-close
+                              :title="timezoneType.displayName"
+                              :class="{ 'list-item-selected': timezoneUsedForDateRange === timezoneType.type }"
+                              :key="timezoneType.type"
+                              v-for="timezoneType in allTimezoneTypesUsedForDateRange"
+                              @click="setTimezoneUsedForDateRange(timezoneType.type)">
+                    <template #after>
+                        <f7-icon class="list-item-checked-icon" f7="checkmark_alt" v-if="timezoneUsedForDateRange === timezoneType.type"></f7-icon>
+                    </template>
+                </f7-list-item>
+
             </f7-list>
         </f7-popover>
 
@@ -352,7 +370,6 @@ import { TextDirection } from '@/core/text.ts';
 import { type TimeRangeAndDateType, DateRange, DateRangeScene } from '@/core/datetime.ts';
 import { AccountType } from '@/core/account.ts';
 import { TransactionType } from '@/core/transaction.ts';
-import { ChartDateAggregationType } from '@/core/statistics.ts';
 import { TRANSACTION_MIN_AMOUNT, TRANSACTION_MAX_AMOUNT } from '@/consts/transaction.ts';
 import { type TransactionReconciliationStatementResponseItemWithInfo } from '@/models/transaction.ts';
 
@@ -388,7 +405,6 @@ const {
     tt,
     getCurrentLanguageTextDirection,
     getAllDateRanges,
-    formatUnixTimeToLongDateTime,
     formatNumberToLocalizedNumerals
 } = useI18n();
 
@@ -399,10 +415,12 @@ const {
     startTime,
     endTime,
     reconciliationStatements,
+    chartDataDateAggregationType,
+    timezoneUsedForDateRange,
     firstDayOfWeek,
     fiscalYearStart,
     allDateAggregationTypes,
-    currentTimezoneOffsetMinutes,
+    allTimezoneTypesUsedForDateRange,
     isCurrentLiabilityAccount,
     currentAccount,
     currentAccountCurrency,
@@ -416,6 +434,7 @@ const {
     setReconciliationStatements,
     getDisplayDate,
     getDisplayTime,
+    isSameAsDefaultTimezoneOffsetMinutes,
     getDisplayTimezone,
     getDisplaySourceAmount,
     getDisplayDestinationAmount,
@@ -431,7 +450,6 @@ const loading = ref<boolean>(false);
 const loadingError = ref<unknown | null>(null);
 const queryDateRangeType = ref<number>(DateRange.ThisMonth.type);
 const showAccountBalanceTrendsCharts = ref<boolean>(false);
-const chartDataDateAggregationType = ref<number>(ChartDateAggregationType.Day.type);
 const transactionToDelete = ref<TransactionReconciliationStatementResponseItemWithInfo | null>(null);
 const newClosingBalance = ref<number>(0);
 const showCustomDateRangeSheet = ref<boolean>(false);
@@ -446,8 +464,6 @@ const virtualDataItems = ref<ReconciliationStatementVirtualListData>({
 const textDirection = computed<TextDirection>(() => getCurrentLanguageTextDirection());
 const validQuery = computed(() => currentAccount.value && currentAccount.value.type === AccountType.SingleAccount.type);
 const allAvailableDateRanges = computed(() => getAllDateRanges(DateRangeScene.Normal, true, !!accountsStore.getAccountStatementDate(accountId.value)));
-const displayStartTime = computed<string>(() => formatUnixTimeToLongDateTime(startTime.value));
-const displayEndTime = computed<string>(() => formatUnixTimeToLongDateTime(endTime.value));
 
 const allReconciliationStatementVirtualListItems = computed<ReconciliationStatementVirtualListItem[]>(() => {
     const ret: ReconciliationStatementVirtualListItem[] = [];
@@ -672,6 +688,10 @@ function removeTransaction(transaction: TransactionReconciliationStatementRespon
 
 function setChartDataDateAggregationType(type: number): void {
     chartDataDateAggregationType.value = type;
+}
+
+function setTimezoneUsedForDateRange(type: number): void {
+    timezoneUsedForDateRange.value = type;
 }
 
 function renderExternal(vl: unknown, vlData: ReconciliationStatementVirtualListData): void {

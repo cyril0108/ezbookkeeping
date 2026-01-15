@@ -31,6 +31,7 @@ type DataManagementsApi struct {
 	pictures                *services.TransactionPictureService
 	templates               *services.TransactionTemplateService
 	userCustomExchangeRates *services.UserCustomExchangeRatesService
+	insightsExploreres      *services.InsightsExplorerService
 }
 
 // Initialize a data management api singleton instance
@@ -48,6 +49,7 @@ var (
 		pictures:                services.TransactionPictures,
 		templates:               services.TransactionTemplates,
 		userCustomExchangeRates: services.UserCustomExchangeRates,
+		insightsExploreres:      services.InsightsExplorers,
 	}
 )
 
@@ -99,6 +101,13 @@ func (a *DataManagementsApi) DataStatisticsHandler(c *core.WebContext) (any, *er
 		return nil, errs.ErrOperationFailed
 	}
 
+	totalInsightsExplorerCount, err := a.insightsExploreres.GetTotalInsightsExplorersCountByUid(c, uid)
+
+	if err != nil {
+		log.Errorf(c, "[data_managements.DataStatisticsHandler] failed to get total insights explorer count for user \"uid:%d\", because %s", uid, err.Error())
+		return nil, errs.ErrOperationFailed
+	}
+
 	totalTransactionTemplateCount, err := a.templates.GetTotalNormalTemplateCountByUid(c, uid)
 
 	if err != nil {
@@ -119,6 +128,7 @@ func (a *DataManagementsApi) DataStatisticsHandler(c *core.WebContext) (any, *er
 		TotalTransactionTagCount:       totalTransactionTagCount,
 		TotalTransactionCount:          totalTransactionCount,
 		TotalTransactionPictureCount:   totalTransactionPictureCount,
+		TotalInsightsExplorerCount:     totalInsightsExplorerCount,
 		TotalTransactionTemplateCount:  totalTransactionTemplateCount,
 		TotalScheduledTransactionCount: totalScheduledTransactionCount,
 	}
@@ -187,6 +197,13 @@ func (a *DataManagementsApi) ClearAllDataHandler(c *core.WebContext) (any, *errs
 
 	if err != nil {
 		log.Errorf(c, "[data_managements.ClearAllDataHandler] failed to delete all user custom exchange rates, because %s", err.Error())
+		return nil, errs.Or(err, errs.ErrOperationFailed)
+	}
+
+	err = a.insightsExploreres.DeleteAllInsightsExplorers(c, uid)
+
+	if err != nil {
+		log.Errorf(c, "[data_managements.ClearAllDataHandler] failed to delete all insights explorers, because %s", err.Error())
 		return nil, errs.Or(err, errs.ErrOperationFailed)
 	}
 
@@ -302,11 +319,11 @@ func (a *DataManagementsApi) getExportedFileContent(c *core.WebContext, fileType
 		return nil, "", errs.NewIncompleteOrIncorrectSubmissionError(err)
 	}
 
-	timezone, _, err := c.GetClientTimezone()
+	clientTimezone, err := c.GetClientTimezone()
 
 	if err != nil {
-		log.Warnf(c, "[data_managements.getExportedFileContent] cannot get client timezone offset, because %s", err.Error())
-		timezone = time.Local
+		log.Warnf(c, "[data_managements.getExportedFileContent] cannot get client timezone, because %s", err.Error())
+		clientTimezone = time.Local
 	}
 
 	uid := c.GetCurrentUid()
@@ -413,13 +430,13 @@ func (a *DataManagementsApi) getExportedFileContent(c *core.WebContext, fileType
 		return nil, "", errs.Or(err, errs.ErrOperationFailed)
 	}
 
-	fileName := a.getFileName(user, timezone, fileType)
+	fileName := a.getFileName(user, clientTimezone, fileType)
 
 	return result, fileName, nil
 }
 
-func (a *DataManagementsApi) getFileName(user *models.User, timezone *time.Location, fileExtension string) string {
-	currentTime := utils.FormatUnixTimeToLongDateTimeWithoutSecond(time.Now().Unix(), timezone)
+func (a *DataManagementsApi) getFileName(user *models.User, clientTimezone *time.Location, fileExtension string) string {
+	currentTime := utils.FormatUnixTimeToLongDateTimeWithoutSecond(time.Now().Unix(), clientTimezone)
 	currentTime = strings.Replace(currentTime, "-", "_", -1)
 	currentTime = strings.Replace(currentTime, " ", "_", -1)
 	currentTime = strings.Replace(currentTime, ":", "_", -1)

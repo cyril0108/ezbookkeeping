@@ -36,6 +36,8 @@ import {
 import {
     getUtcOffsetByUtcOffsetMinutes,
     getTimezoneOffsetMinutes,
+    getSameDateTimeWithCurrentTimezone,
+    parseDateTimeFromUnixTimeWithBrowserTimezone,
     getCurrentUnixTime
 } from '@/lib/datetime.ts';
 
@@ -92,18 +94,19 @@ export function useTransactionEditPageBase(type: TransactionEditPageType, initMo
     const transaction = ref<Transaction | TransactionTemplate>(createNewTransactionModel(transactionDefaultType));
 
     const numeralSystem = computed<NumeralSystem>(() => getCurrentNumeralSystemType());
-    const currentTimezoneOffsetMinutes = computed<number>(() => getTimezoneOffsetMinutes(settingsStore.appSettings.timeZone));
+    const currentTimezoneOffsetMinutes = computed<number>(() => getTimezoneOffsetMinutes(transaction.value.time));
     const showAccountBalance = computed<boolean>(() => settingsStore.appSettings.showAccountBalance);
+    const customAccountCategoryOrder = computed<string>(() => settingsStore.appSettings.accountCategoryOrders);
     const defaultCurrency = computed<string>(() => userStore.currentUserDefaultCurrency);
     const defaultAccountId = computed<string>(() => userStore.currentUserDefaultAccountId);
     const firstDayOfWeek = computed<WeekDayValue>(() => userStore.currentUserFirstDayOfWeek);
     const coordinateDisplayType = computed<number>(() => userStore.currentUserCoordinateDisplayType);
 
-    const allTimezones = computed<LocalizedTimezoneInfo[]>(() => getAllTimezones(true));
+    const allTimezones = computed<LocalizedTimezoneInfo[]>(() => getAllTimezones(transaction.value.time, true));
     const allAccounts = computed<Account[]>(() => accountsStore.allPlainAccounts);
     const allVisibleAccounts = computed<Account[]>(() => accountsStore.allVisiblePlainAccounts);
     const allAccountsMap = computed<Record<string, Account>>(() => accountsStore.allAccountsMap);
-    const allVisibleCategorizedAccounts = computed<CategorizedAccountWithDisplayBalance[]>(() => getCategorizedAccountsWithDisplayBalance(allVisibleAccounts.value, showAccountBalance.value));
+    const allVisibleCategorizedAccounts = computed<CategorizedAccountWithDisplayBalance[]>(() => getCategorizedAccountsWithDisplayBalance(allVisibleAccounts.value, showAccountBalance.value, customAccountCategoryOrder.value));
     const allCategories = computed<Record<number, TransactionCategory[]>>(() => transactionCategoriesStore.allTransactionCategories);
     const allCategoriesMap = computed<Record<string, TransactionCategory>>(() => transactionCategoriesStore.allTransactionCategoriesMap);
     const allTags = computed<TransactionTag[]>(() => transactionTagsStore.allTransactionTags);
@@ -274,7 +277,7 @@ export function useTransactionEditPageBase(type: TransactionEditPageType, initMo
     });
 
     const transactionTimezoneTimeDifference = computed<string>(() => {
-        return getTimezoneDifferenceDisplayText(transaction.value.utcOffset);
+        return getTimezoneDifferenceDisplayText(transaction.value.time, transaction.value.utcOffset);
     });
 
     const geoLocationStatusInfo = computed<string>(() => {
@@ -331,8 +334,12 @@ export function useTransactionEditPageBase(type: TransactionEditPageType, initMo
         return !!inputEmptyProblemMessage.value;
     });
 
+    function getCurrentUnixTimeForNewTransaction(): number {
+        return getSameDateTimeWithCurrentTimezone(parseDateTimeFromUnixTimeWithBrowserTimezone(getCurrentUnixTime())).getUnixTime();
+    }
+
     function createNewTransactionModel(transactionType?: number): Transaction | TransactionTemplate {
-        const now: number = getCurrentUnixTime();
+        const now: number = getCurrentUnixTimeForNewTransaction();
         const currentTimezone: string = settingsStore.appSettings.timeZone;
 
         let defaultType: TransactionType = TransactionType.Expense;
@@ -343,13 +350,32 @@ export function useTransactionEditPageBase(type: TransactionEditPageType, initMo
             defaultType = TransactionType.Transfer;
         }
 
-        let newTransaction: Transaction | TransactionTemplate = Transaction.createNewTransaction(defaultType, now, currentTimezone, getTimezoneOffsetMinutes(currentTimezone));
+        let newTransaction: Transaction | TransactionTemplate = Transaction.createNewTransaction(defaultType, now, currentTimezone, getTimezoneOffsetMinutes(now, currentTimezone));
 
         if (type === TransactionEditPageType.Template) {
             newTransaction = TransactionTemplate.createNewTransactionTemplate(newTransaction);
         }
 
         return newTransaction;
+    }
+
+    function updateTransactionTime(newTime: number): void {
+        transaction.value.time = newTime;
+        updateTransactionTimezone(transaction.value.timeZone ?? '');
+    }
+
+    function updateTransactionTimezone(timezoneName: string): void {
+        const oldUtcOffset = transaction.value.utcOffset;
+
+        for (const timezone of allTimezones.value) {
+            if (timezone.name === timezoneName) {
+                transaction.value.timeZone = timezone.name;
+                transaction.value.utcOffset = timezone.utcOffsetMinutes;
+                break;
+            }
+        }
+
+        transaction.value.time = transaction.value.time - (transaction.value.utcOffset - oldUtcOffset) * 60;
     }
 
     function swapTransactionData(swapAccount: boolean, swapAmount: boolean): void {
@@ -393,15 +419,6 @@ export function useTransactionEditPageBase(type: TransactionEditPageType, initMo
 
         if (transaction.value.type === TransactionType.Expense || transaction.value.type === TransactionType.Income) {
             transaction.value.sourceAmount = newValue;
-        }
-    });
-
-    watch(() => transaction.value.timeZone, (newValue) => {
-        for (const timezone of allTimezones.value) {
-            if (timezone.name === newValue) {
-                transaction.value.utcOffset = timezone.utcOffsetMinutes;
-                break;
-            }
         }
     });
 
@@ -460,6 +477,8 @@ export function useTransactionEditPageBase(type: TransactionEditPageType, initMo
         inputIsEmpty,
         // functions
         createNewTransactionModel,
+        updateTransactionTime,
+        updateTransactionTimezone,
         swapTransactionData,
         getDisplayAmount,
         getTransactionPictureUrl
