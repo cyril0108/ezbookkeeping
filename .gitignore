@@ -159,4 +159,6 @@ package/
 # Other directories
 data/
 storage/
+# ezbookkeeping data
+mysql_data/
 log/
