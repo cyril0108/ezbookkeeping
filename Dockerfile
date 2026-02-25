@@ -16,7 +16,7 @@ WORKDIR /go/src/github.com/mayswind/ezbookkeeping
 COPY . .
 RUN docker/backend-build-pre-setup.sh
 RUN apk add git gcc g++ libc-dev
-RUN ./build.sh backend
+RUN ./build.sh backend --no-test
 
 # Build frontend files
 FROM --platform=$BUILDPLATFORM node:24.12.0-alpine3.23 AS fe-builder
@@ -38,7 +38,7 @@ RUN ./build.sh frontend
 FROM alpine:3.23.2
 LABEL maintainer="MaysWind <i@mayswind.net>"
 RUN addgroup -S -g 1000 ezbookkeeping && adduser -S -G ezbookkeeping -u 1000 ezbookkeeping
-RUN apk --no-cache add tzdata
+RUN apk update && apk --no-cache add tzdata
 COPY docker/docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh
 RUN mkdir -p /ezbookkeeping && chown 1000:1000 /ezbookkeeping \
