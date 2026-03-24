@@ -88,7 +88,8 @@ export class AccountBalanceTrendChartType implements TypeAndName {
 
     public static readonly Area = new AccountBalanceTrendChartType(0, 'Area Chart');
     public static readonly Column = new AccountBalanceTrendChartType(1, 'Column Chart');
-    public static readonly Candlestick = new AccountBalanceTrendChartType(2, 'Candlestick Chart');
+    public static readonly Boxplot = new AccountBalanceTrendChartType(2, 'Boxplot Chart');
+    public static readonly Candlestick = new AccountBalanceTrendChartType(3, 'Candlestick Chart');
 
     public static readonly Default = TrendChartType.Column;
 
@@ -283,6 +284,12 @@ export class ChartDateAggregationType {
     public static valueOf(type: number): ChartDateAggregationType | undefined {
         return ChartDateAggregationType.allInstancesByType[type];
     }
+}
+
+export enum ExportMermaidChartType {
+    PieChart = 'pieChart',
+    XYChartBar = 'xyChartBar',
+    XYChartLine = 'xyChartLine'
 }
 
 export const DEFAULT_CATEGORICAL_CHART_DATA_RANGE: DateRange = DateRange.ThisMonth;
